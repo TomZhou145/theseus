@@ -60,7 +60,7 @@ class Model_Engine:
 
 
 @app.function(image=web_image, timeout=3600, volumes={CACHE_DIR:cache})
-@modal.asgi_app()
+@modal.asgi_app(requires_proxy_auth=True)
 def web():
 
     # ------- dependencies ------- 
@@ -76,10 +76,34 @@ def web():
         allow_methods=["*"], allow_headers=["*"],
     )
 
+# input type / size sanitaztion
+    ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aiff", ".aif", ".webm"}
+    ALLOWED_MIME_TYPES = {
+        "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave",
+        "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/ogg", "audio/flac",
+        "audio/aiff", "audio/x-aiff", "audio/webm",
+    }
+    MAX_UPLOAD_BYTES = 100 * 1024 * 1024 
+
     @api.post("/upload")
-    async def upload(file: UploadFile =File(...)):
-        # new file + reset cache for new upload session
+    async def upload(file: UploadFile = File(...)):
+        ext = pathlib.Path(file.filename or "").suffix.lower()
+        mime = (file.content_type or "").split(";")[0].strip()
+        if ext not in ALLOWED_EXTENSIONS and mime not in ALLOWED_MIME_TYPES:
+            return JSONResponse(
+                {"error": f"Unsupported file type '{ext or mime}'. Accepted: {', '.join(sorted(ALLOWED_EXTENSIONS))}"},
+                status_code=415,
+            )
+
         data = await file.read()
+
+        if len(data) > MAX_UPLOAD_BYTES:
+            return JSONResponse(
+                {"error": f"File too large ({len(data) // (1024*1024)} MB). Maximum is {MAX_UPLOAD_BYTES // (1024*1024)} MB."},
+                status_code=413,
+            )
+
+        # new file + reset cache for new upload session
         cache.reload()
 
         # efficeint hashing scheme/keys for storing folder of both og + stems
@@ -154,10 +178,9 @@ def web():
 
 # Cost about $0.01 per run on T4, for a song with 2:56 minutes, 4 stems
 # 50 seconds to separate a song that is 4:24 
-song_1 = "loathe_but_im_a_periphery_fan_i_fucked_up_my_voice_for_tis.wav"
-song_2 = "HauntedShoreVibe_demo1.wav"
-song_3 = "dying_star.m4a"
-song_to_process = "obsession.mp3"
+# song_2 = "HauntedShoreVibe_demo1.wav"
+# song_3 = "dying_star.m4a"
+# song_to_process = "obsession.mp3"
 
 # @app.local_entrypoint()
 # def main(audio_path: str = song_to_process):
