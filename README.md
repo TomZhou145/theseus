@@ -2,7 +2,7 @@
 audio source separation engine / Web Service
 6/29/26
 
-##LOG 
+## LOG 
 Current Funtioning: 
 - Music Stem Separation via HDEMUCS (downalod/visual only)
 - UI Design
