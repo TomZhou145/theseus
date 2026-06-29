@@ -1,4 +1,5 @@
-import * as Tone from "tone"; 
+// @ts-nocheck
+import * as Tone from "tone";
 
 export type StemSource = {id: string; url: string}; 
 

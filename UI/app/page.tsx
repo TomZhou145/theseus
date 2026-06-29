@@ -38,9 +38,10 @@ async function separateByKey(key: string): Promise<SeparateResult> {
 }
 
 // base64 text → raw bytes (each char code IS a byte)
-function base64ToBytes(b64: string): Uint8Array {
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
+  const buf = new ArrayBuffer(bin.length);
+  const bytes = new Uint8Array(buf);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
 }
