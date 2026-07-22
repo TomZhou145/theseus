@@ -2,15 +2,15 @@
 audio source separation engine / Web Service
 
 Last Update
-6/29/26
+7/22/26
 
 ## LOG 
 Current Funtioning: 
 - Music Stem Separation via HDEMUCS (downalod/visual only)
 - UI Design
+- Audio Playback Engine (testing) 
   
 Working Progress: 
-- Audio Playback Engine
 - Scene/FX/Score Separation
 - Vocal Enhancement
 - Bugs & Fixes
