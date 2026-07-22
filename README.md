@@ -1,11 +1,11 @@
 # theseus 
 audio source separation engine / Web Service
 
-Last Update
+Last Update 
 7/22/26
 
 ## LOG 
-Current Funtioning: 
+### Current Funtioning: 
   6/23/26
   - Music Stem Separation via HDEMUCS (downalod/visual only) 
   - UI Design
@@ -13,7 +13,7 @@ Current Funtioning:
   7/22/26
   - Audio Playback Engine (testing) 
   
-Working Progress: 
+### Working Progress: 
 - Scene/FX/Score Separation
 - Vocal Enhancement
 - Bugs & Fixes
