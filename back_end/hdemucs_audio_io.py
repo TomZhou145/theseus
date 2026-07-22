@@ -60,7 +60,7 @@ class Model_Engine:
 
 
 @app.function(image=web_image, timeout=3600, volumes={CACHE_DIR:cache})
-@modal.asgi_app(requires_proxy_auth=True)
+@modal.asgi_app()
 def web():
 
     # ------- dependencies ------- 
@@ -72,7 +72,7 @@ def web():
     api = FastAPI()
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "https://your-site.vercel.app"],
+        allow_origins=["http://localhost:3000", "http://localhost:3001", "https://theseus-lemon.vercel.app"],
         allow_methods=["*"], allow_headers=["*"],
     )
 
@@ -105,9 +105,6 @@ def web():
 
         # new file + reset cache for new upload session
         cache.reload()
-
-        # efficeint hashing scheme/keys for storing folder of both og + stems
-        # direct upload to cache, everyt other funtionalities grab audio from. 
 
         digest = hashlib.sha256(data).hexdigest()[:16] #encrypy for hash/cache
         ext = pathlib.Path(file.filename or "audio").suffix or ".bin"

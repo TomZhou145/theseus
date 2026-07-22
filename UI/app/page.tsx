@@ -27,7 +27,7 @@ async function uploadFile(file: File): Promise<UploadResult> {
   return res.json();
 }
 
-// sends the KEY as JSON, not a file as FormData
+// sends the KEY as JSON
 async function separateByKey(key: string): Promise<SeparateResult> {
   const res = await fetch(`${BASE}/separate`, {
     method: "POST",
@@ -38,7 +38,7 @@ async function separateByKey(key: string): Promise<SeparateResult> {
   return res.json();
 }
 
-// base64 text → raw bytes (each char code IS a byte)
+// base64 text → raw bytes0
 function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const buf = new ArrayBuffer(bin.length);
@@ -47,14 +47,14 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-// one AudioContext, reused only to DECODE (we never play through it here)
+
 let _decodeCtx: AudioContext | null = null;
 function getDecodeCtx(): AudioContext {
   if (!_decodeCtx) _decodeCtx = new AudioContext();
   return _decodeCtx;
 }
 
-// downsample a decoded buffer into n peak values (the waveform envelope)
+
 function rawPeaks(buffer: AudioBuffer, n = 600): number[] {
   const data = buffer.getChannelData(0);
   const block = Math.max(1, Math.floor(data.length / n));
@@ -71,7 +71,6 @@ function rawPeaks(buffer: AudioBuffer, n = 600): number[] {
   return peaks;
 }
 
-// max across stems per column → one overview waveform for the whole song
 function combinePeaks(stems: LoadedStem[], n = 600): number[] {
   const out = new Array(n).fill(0);
   for (const s of stems) for (let i = 0; i < n; i++) if ((s.peaks[i] || 0) > out[i]) out[i] = s.peaks[i];
