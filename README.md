@@ -5,7 +5,6 @@ Last Update
 7/22/26
 
 ## LOG 
-### Current Funtioning: 
   6/23/26
   - Music Stem Separation via HDEMUCS (downalod/visual only) 
   - UI Design
