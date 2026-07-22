@@ -21,3 +21,4 @@ venv/
 .env*
 *.pem
 *.key
+.vercel
