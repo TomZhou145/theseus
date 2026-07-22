@@ -6,9 +6,12 @@ Last Update
 
 ## LOG 
 Current Funtioning: 
-- Music Stem Separation via HDEMUCS (downalod/visual only) 6/23/26
-- UI Design  6/23/26
-- Audio Playback Engine (testing) 7/22/26
+  6/23/26
+  - Music Stem Separation via HDEMUCS (downalod/visual only) 
+  - UI Design
+
+  7/22/26
+  - Audio Playback Engine (testing) 
   
 Working Progress: 
 - Scene/FX/Score Separation
