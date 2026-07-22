@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Space_Grotesk } from "next/font/google";
+import { AudioEngine } from "@/lib/engine";
 
 const display = Space_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600", "700"] });
 
@@ -296,15 +297,29 @@ type Model = {
   vocalSplit?: boolean;
   underDevelopment?: boolean;
   subModels?: { id: string; label: string }[];
-};
+}; 
+
 const MODELS: Model[] = [
-  { id: "htdemucs", label: "Music Source Separator", image: "/2.jpg", accent: "#f07bb7", kind: "Music · 4-stem",
+  { id: "htdemucs", 
+    label: "Music Source Separator", 
+    image: "/2.jpg", 
+    accent: "#f07bb7", 
+    kind: "Music · 4-stem",
     stems: [{ id: "vocals", label: "Vocals" }, { id: "drums", label: "Drums" }, { id: "bass", label: "Bass" }, { id: "other", label: "Other" }],
     subModels: [{ id: "htdemucs_ft", label: "Mucus" }, { id: "htdemucs_v3", label: "Mode 2" }] },
-  { id: "cdx", label: "Score / Dialogue / FX", image: "/1.jpg", accent: "#29ccb6", kind: "Cinematic · CDX",
+  { id: "cdx", 
+    label: "Score / Dialogue / FX", 
+    image: "/1.jpg", 
+    accent: "#29ccb6", 
+    kind: "Cinematic · CDX",
     stems: [{ id: "dialogue", label: "Dialogue" }, { id: "music", label: "Music" }, { id: "effects", label: "Effects" }],
     underDevelopment: true },
-  { id: "vocal", label: "Vocal Isolation", image: "/3.jpg", accent: "#8590f6", kind: "Voice · Isolation", vocalSplit: true,
+  { id: "vocal", 
+    label: "Vocal Isolation", 
+    image: "/3.jpg", 
+    accent: "#8590f6", 
+    kind: "Voice · Isolation",
+     vocalSplit: true,
     stems: [{ id: "vocals", label: "Vocals" }, { id: "accompaniment", label: "Accompaniment" }],
     underDevelopment: true },
 ];
@@ -312,7 +327,12 @@ const MODELS: Model[] = [
 function Studio({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<"idle" | "uploading" | "separating" | "done" | "error">("idle");
   const [loaded, setLoaded] = useState<LoadedSong | null>(null);
+  const engineRef = useRef<AudioEngine | null>(null); 
 
+  // initialize once 
+  if (!engineRef.current) {
+    engineRef.current = new AudioEngine();
+  }
   const [modelId, setModelId] = useState(MODELS[0].id);
   const model = MODELS.find((m) => m.id === modelId)!;
   const [subModelId, setSubModelId] = useState(MODELS[0].subModels![0].id);;
@@ -350,21 +370,47 @@ function Studio({ onBack }: { onBack: () => void }) {
   };
 
   const [playing, setPlaying] = useState(false);
-  const [loopEnabled, setLoopEnabled] = useState(true);
+  useEffect(()=> {
+      if (! playing) {
+          engineRef.current?.pause(); 
+      }
+      else {
+          engineRef.current?.play();
+      }
+  }, [playing]);
+  
   const [master, setMaster] = useState(0.9);
-  const [speed, setSpeed] = useState(1);
-  const [transpose, setTranspose] = useState(0);
-  const [cents, setCents] = useState(0);
-  const [a432dir, setA432dir] = useState(0);
+  useEffect(() => {
+    engineRef.current?.setMasterVolume(master);
+  }, [master]);
 
-  const tuningCents = cents + a432dir * A432_MAG;
+  const [speed, setSpeed] = useState(1);
+  useEffect(() => {
+    engineRef.current?.setRate(speed);
+  }, [speed]);
+
+  // tuning in cents, one octave = 1200. x step = 100 * x cents, 3 operates together // 
+  const [transpose, setTranspose] = useState(0);
+  const [cents,setCents] = useState(0);
+  const [a432dir, setA432dir] = useState(0);
+  useEffect(()=> {   
+    engineRef.current?.setDetune(transpose*100 + cents + a432dir * A432_MAG); }, [transpose, cents, a432dir]);
+
+  const tuningCents = cents + a432dir * A432_MAG; 
   const refHz = 440 * Math.pow(2, tuningCents / 1200);
 
   const duration = loaded?.duration ?? 184;
   const [pxPerSec, setPxPerSec] = useState(9);
-  const [loopStart, setLoopStart] = useState(16);
+
+  const [loopEnabled, setLoopEnabled] = useState(true);
+  const [loopStart, setLoopStart] = useState(0);
   const [loopEnd, setLoopEnd] = useState(40);
-  const [playhead, setPlayhead] = useState(8);
+  useEffect(() => {
+    engineRef.current?.setLoop(loopStart, loopEnd, loopEnabled);
+  }, [loopStart, loopEnd, loopEnabled]);
+
+  const [playhead, setPlayhead] = useState(0);
+
 
   async function handleFile(file: File) {
     try {
