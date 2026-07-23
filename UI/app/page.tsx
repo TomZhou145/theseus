@@ -747,7 +747,7 @@ export default function Home() {
 
   return (
     <div className={`relative min-h-screen ${display.className}`}>
-      <div className="fixed inset-0 -z-10 bg-[url('/back.jpg')] bg-cover bg-center bg-no-repeat" />
+      <div className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url(/back.jpg)" }} />
 
       {view === "intro" && (
         <main className="relative z-10 flex min-h-screen items-center justify-center px-6">
