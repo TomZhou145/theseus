@@ -72,7 +72,8 @@ def web():
     api = FastAPI()
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001", "https://theseus-lemon.vercel.app", "https://theseus-lemon.vercel.app/upload"],
+        allow_origins=["https://theseus-lemon.vercel.app", "https://theseus-lemon.vercel.app/upload"],
+
         allow_methods=["*"], allow_headers=["*"],
     )
 

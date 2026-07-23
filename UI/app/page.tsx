@@ -82,13 +82,14 @@ function Dropzone({ onFile, busy, label = "Uploading…" }: { onFile: (file: Fil
   const depth = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const accept = (file: File | undefined) => {
+    if (busy) return; // ignore drops/picks while an upload is already in flight
     if (!file) return;
     if (!file.type.startsWith("audio/")) return;
     onFile(file);
   };
   return (
     <div
-      onDragEnter={(e) => { e.preventDefault(); depth.current++; setOver(true); }}
+      onDragEnter={(e) => { e.preventDefault(); if (busy) return; depth.current++; setOver(true); }}
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={(e) => { e.preventDefault(); if (--depth.current <= 0) setOver(false); }}
       onDrop={(e) => {
@@ -96,9 +97,9 @@ function Dropzone({ onFile, busy, label = "Uploading…" }: { onFile: (file: Fil
         depth.current = 0; setOver(false);
         accept(e.dataTransfer.files[0]);
       }}
-      onClick={() => inputRef.current?.click()}
-      className={`mx-auto mt-5 flex h-16 max-w-6xl cursor-pointer items-center justify-center border border-dashed text-sm transition-colors ${
-        over ? "border-white/60 bg-white/[0.04] text-white/80" : "border-white/20 text-white/40 hover:border-white/40"
+      onClick={() => { if (!busy) inputRef.current?.click(); }}
+      className={`mx-auto mt-5 flex h-16 w-full items-center justify-center border border-dashed text-sm transition-colors ${
+        busy ? "cursor-wait border-white/20 text-white/40" : over ? "cursor-pointer border-white/60 bg-white/[0.04] text-white/80" : "cursor-pointer border-white/20 text-white/40 hover:border-white/40"
       }`}
     >
       {busy ? label : over ? "Release to upload" : "Drop an audio file to separate"}
@@ -109,6 +110,37 @@ function Dropzone({ onFile, busy, label = "Uploading…" }: { onFile: (file: Fil
         className="hidden"
         onChange={(e) => { accept(e.target.files?.[0]); e.target.value = ""; }}
       />
+    </div>
+  );
+}
+
+// shown right after a drop — full-screen choice: decides whether the file goes through stem separation
+function SeparateChoice({ file, onChoice, onCancel }: { file: File; onChoice: (separate: boolean) => void; onCancel: () => void }) {
+  return (
+    <div
+      onClick={onCancel}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-[fadeIn_0.25s_ease-out]"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-lg animate-[choiceIn_0.35s_ease-out] border border-white/20 bg-zinc-950/80 p-10 text-center backdrop-blur-md"
+      >
+        <div className="pointer-events-none absolute left-0 top-0 h-4 w-4 border-l border-t border-white/50" />
+        <div className="pointer-events-none absolute right-0 top-0 h-4 w-4 border-r border-t border-white/50" />
+        <div className="pointer-events-none absolute bottom-0 left-0 h-4 w-4 border-b border-l border-white/50" />
+        <div className="pointer-events-none absolute bottom-0 right-0 h-4 w-4 border-b border-r border-white/50" />
+
+        <button onClick={onCancel} title="Cancel" className="absolute right-4 top-4 text-xs uppercase tracking-[0.2em] text-white/40 transition active:scale-95 hover:text-white/90">✕</button>
+
+        <div className="text-[10px] uppercase tracking-[0.3em] text-white/40">Loaded</div>
+        <div className="mt-3 truncate text-xl text-white/90">{file.name}</div>
+        <p className="mt-3 text-xs uppercase tracking-[0.2em] text-white/50">Grind it through the Separator?</p>
+
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <button onClick={() => onChoice(true)} className="flex-1 border border-white/30 py-3 text-xs uppercase tracking-[0.25em] text-white/85 transition active:scale-95 hover:bg-white/10">Separate!</button>
+          <button onClick={() => onChoice(false)} className="flex-1 border border-white/20 py-3 text-xs uppercase tracking-[0.25em] text-white/60 transition active:scale-95 hover:bg-white/10">No</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -157,7 +189,7 @@ function Knob({ value, min, max, step = 1, onChange, label, format }: {
   );
 }
 
-const LANE_H = 56, RULER_H = 28, HEADER_W = 300;
+const LANE_H = 88, RULER_H = 28, HEADER_W = 300;
 const A432_MAG = 31.77;
 const clampN = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 function makePeaks(seed: string, n = 600) {
@@ -272,11 +304,11 @@ function Playhead({ time, duration, height }: { time: number; duration: number; 
 function LoadedBar({ song, onClear }: { song: LoadedSong; onClear: () => void }) {
   const overview = useMemo(() => combinePeaks(song.stems), [song]);
   return (
-    <div className="mx-auto mt-5 flex max-w-6xl items-center gap-4 border border-white/30 bg-black/30 px-4 py-3">
+    <div className="mx-auto mt-5 flex w-full items-center gap-4 border border-white/30 bg-black/30 px-4 py-3">
       <div className="min-w-0 shrink-0 sm:w-48">
         <div className="truncate text-sm text-white/90">{song.filename}</div>
         <div className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-white/40">
-          {fmtTime(song.duration)} · {song.stems.length} stems loaded
+          {fmtTime(song.duration)} · {song.stems.length} stem{song.stems.length === 1 ? "" : "s"} loaded
         </div>
       </div>
       <div className="h-10 flex-1">
@@ -324,37 +356,73 @@ const MODELS: Model[] = [
 ];
 
 function Studio({ onBack }: { onBack: () => void }) {
-  const [status, setStatus] = useState<"idle" | "uploading" | "separating" | "done" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "uploading" | "separating" | "decoding" | "done" | "error">("idle");
   const [loaded, setLoaded] = useState<LoadedSong | null>(null);
-  const engineRef = useRef<AudioEngine | null>(null); 
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [directMode, setDirectMode] = useState(false);
+  const engineRef = useRef<AudioEngine | null>(null);
+  const [playhead, setPlayhead] = useState(0);
 
-  // initialize once 
-  if (!engineRef.current) {
-    engineRef.current = new AudioEngine();
-  }
+  // Engine creation, its playhead subscription, and disposal are consolidated into one
+  // effect so they always stay paired to the SAME instance. Tone.Transport/Destination
+  // are page-wide singletons, not scoped to this component: a mismatched
+  // create/subscribe/dispose (e.g. across React Strict Mode's dev-only double-invoke of
+  // mount -> cleanup -> mount again) can otherwise leave onTimeUpdate silently
+  // subscribed to nothing, or an old engine's players running forever alongside
+  // whatever loads next.
+  useEffect(() => {
+    const engine = new AudioEngine();
+    engineRef.current = engine;
+    const unsubscribe = engine.onTimeUpdate(setPlayhead);
+    return () => {
+      unsubscribe();
+      engine.dispose();
+      if (engineRef.current === engine) engineRef.current = null;
+    };
+  }, []);
+
   const [modelId, setModelId] = useState(MODELS[0].id);
   const model = MODELS.find((m) => m.id === modelId)!;
   const [subModelId, setSubModelId] = useState(MODELS[0].subModels![0].id);;
 
+  // direct (no-separation) sessions swap in a single synthetic "stem" named after the file,
+  // but keep the Music Source Separator's pink theme/backdrop rather than a distinct look
+  const activeStems = directMode ? [{ id: "original", label: loaded?.filename ?? "Track" }] : model.stems;
+  const themeId = directMode ? MODELS[0].id : modelId;
+  const accent = directMode ? MODELS[0].accent : model.accent;
+
   const [mix, setMix] = useState<Record<string, Channel>>({});
   useEffect(() => {
     const init: Record<string, Channel> = {};
-    model.stems.forEach((s) => (init[s.id] = { volume: 0.8, muted: false, solo: false }));
+    activeStems.forEach((s) => (init[s.id] = { volume: 0.8, muted: false, solo: false }));
     setMix(init);
-  }, [modelId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [modelId, directMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const peaks = useMemo(() => {
     const out: Record<string, number[]> = {};
-    for (const s of model.stems) {
+    for (const s of activeStems) {
       const hit = loaded?.stems.find((ls) => ls.name === s.id); // htdemucs ids == backend stem names
       out[s.id] = hit ? hit.peaks : makePeaks(s.id);            // real if loaded, else placeholder
     }
     return out;
   }, [modelId, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setVol = (id: string, v: number) => setMix((m) => ({ ...m, [id]: { ...m[id], volume: v } }));
-  const toggleMute = (id: string) => setMix((m) => ({ ...m, [id]: { ...m[id], muted: !m[id].muted } }));
-  const toggleSolo = (id: string) => setMix((m) => ({ ...m, [id]: { ...m[id], solo: !m[id].solo } }));
+  const setVol = (id: string, v: number) => { 
+    engineRef.current?.setStemVolume(id,v);
+    setMix((m) => ({ ...m, [id]: { ...m[id], volume: v }})); 
+  };
+
+  const toggleMute = (id: string) => setMix((m) => {
+    const muted = !m[id].muted;
+    engineRef.current?.setMute(id, muted);
+   return { ...m, [id]: { ...m[id], muted } };
+  });
+
+  const toggleSolo = (id: string) => setMix((m) => {
+    const solo = !m[id].solo; 
+    engineRef.current?.setSolo(id, solo); 
+    return { ...m, [id]: { ...m[id], solo: !m[id].solo } }
+  });
 
   const downloadStem = (stemId: string, label: string) => {
     if (!loaded) return;
@@ -363,7 +431,8 @@ function Studio({ onBack }: { onBack: () => void }) {
     const url = URL.createObjectURL(stem.blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${loaded.filename.replace(/\.[^.]+$/, "")}_${label}.mp3`;
+    // direct-mode blob is the untouched original upload — keep its real name/extension
+    a.download = directMode ? loaded.filename : `${loaded.filename.replace(/\.[^.]+$/, "")}_${label}.mp3`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -401,17 +470,37 @@ function Studio({ onBack }: { onBack: () => void }) {
   const duration = loaded?.duration ?? 184;
   const [pxPerSec, setPxPerSec] = useState(9);
 
-  const [loopEnabled, setLoopEnabled] = useState(true);
+  const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopStart, setLoopStart] = useState(0);
   const [loopEnd, setLoopEnd] = useState(40);
   useEffect(() => {
     engineRef.current?.setLoop(loopStart, loopEnd, loopEnabled);
   }, [loopStart, loopEnd, loopEnabled]);
 
-  const [playhead, setPlayhead] = useState(0);
+  // keybinds: space = play/pause, l = toggle loop
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        setPlaying((p) => !p);
+      } else if (e.key === "l" || e.key === "L") {
+        setLoopEnabled((l) => !l);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
 
   async function handleFile(file: File) {
+    // wipe the previous session immediately — otherwise the old song keeps
+    // playing for the entire upload+separate wait, not just until it finishes
+    engineRef.current?.clear();
+    setPlaying(false);
+    setPlayhead(0);
+    setDirectMode(false);
     try {
       setStatus("uploading");
       const { key, filename } = await uploadFile(file);
@@ -439,6 +528,13 @@ function Studio({ onBack }: { onBack: () => void }) {
       }));
       const dur = decoded[0]?.dur ?? 0;
 
+      // blob -> url for audio engine in-type
+      const sources = stemsOut.map((s) => ({id: s.name, url: URL.createObjectURL(s.blob)}));
+      await engineRef.current?.loadStem(sources); 
+
+      sources.forEach((s) => URL.revokeObjectURL(s.url)); // unlink url
+
+
       setLoaded({ key, filename, duration: dur, stems: stemsOut });
       setModelId("htdemucs"); // backend always returns the 4 htdemucs stems
       setPlayhead(0);         // fit the timeline cursors to the real song
@@ -451,17 +547,49 @@ function Studio({ onBack }: { onBack: () => void }) {
     }
   }
 
+  // "play as-is" path: no backend call, no separation — just one track, fully client-side
+  async function handleDirectFile(file: File) {
+    engineRef.current?.clear();
+    setPlaying(false);
+    setPlayhead(0);
+    try {
+      setStatus("decoding");
+      const ctx = getDecodeCtx();
+      const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+      const raw = rawPeaks(buffer);
+      const globalMax = Math.max(...raw, 0.0001);
+      const stem: LoadedStem = { name: "original", blob: file, peaks: raw.map((p) => Math.min(1, p / globalMax)) };
+
+      const url = URL.createObjectURL(file);
+      await engineRef.current?.loadStem([{ id: "original", url }]);
+      URL.revokeObjectURL(url);
+
+      setDirectMode(true);
+      setLoaded({ key: "", filename: file.name, duration: buffer.duration, stems: [stem] });
+      setLoopStart(0);
+      setLoopEnd(Math.min(20, buffer.duration));
+      setStatus("done");
+    } catch (e) {
+      console.error(e);
+      setStatus("error");
+    }
+  }
+
   const laneRef = useRef<HTMLDivElement>(null);
   const zoom = (f: number) => setPxPerSec((p) => clampN(p * f, 3, 160));
   const onWheel = (e: React.WheelEvent) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.12 : 0.9); } };
   const seek = (e: React.PointerEvent) => {
     const rect = laneRef.current!.getBoundingClientRect();
-    setPlayhead(clampN(((e.clientX - rect.left) / rect.width) * duration, 0, duration));
+
+    const t = clampN(((e.clientX - rect.left) / rect.width) * duration, 0, duration);
+    setPlayhead(t);
+    engineRef.current?.seek(t);
   };
-  const lanesH = LANE_H * model.stems.length;
+
+  const lanesH = LANE_H * activeStems.length;
 
   return (
-    <div style={{ "--accent": model.accent } as React.CSSProperties}>
+    <div style={{ "--accent": accent } as React.CSSProperties}>
       <div className="fixed inset-0 -z-10 bg-black/45" />
 
       <main className="relative z-10 min-h-screen animate-[studioIn_0.7s_ease-out] px-6 py-10 text-zinc-100">
@@ -469,31 +597,50 @@ function Studio({ onBack }: { onBack: () => void }) {
           @property --rim-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
           @keyframes rimRotate { to { --rim-angle: 360deg; } }
           @keyframes loopPulse { 0%,100% { border-color: rgba(250,204,21,.5); background-color: rgba(250,204,21,.08);} 50% { border-color: rgba(250,204,21,.95); background-color: rgba(250,204,21,.16);} }
-          @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }` }} />
+          @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
+          @keyframes choiceIn { from { opacity: 0; transform: translateY(10px) scale(0.97);} to { opacity: 1; transform: translateY(0) scale(1);} }` }} />
 
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+        <div className="mx-auto flex w-full items-center justify-between">
           <button onClick={onBack} className="text-xs uppercase tracking-[0.25em] text-white/50 transition active:scale-95 hover:text-white/90">← Theseus</button>
           <span className="text-[10px] uppercase tracking-[0.3em] text-white/35">Audio // ML</span>
         </div>
 
         {loaded ? (
-          <LoadedBar song={loaded} onClear={() => { setLoaded(null); setStatus("idle"); }} />
+          <LoadedBar song={loaded} onClear={() => {
+            engineRef.current?.clear();
+            setPlaying(false);
+            setPlayhead(0);
+            setLoaded(null);
+            setDirectMode(false);
+            setStatus("idle");
+          }} />
+        ) : pendingFile ? (
+          <SeparateChoice
+            file={pendingFile}
+            onChoice={(separate) => {
+              const file = pendingFile;
+              setPendingFile(null);
+              if (separate) handleFile(file);
+              else handleDirectFile(file);
+            }}
+            onCancel={() => setPendingFile(null)}
+          />
         ) : (
           <Dropzone
-            onFile={handleFile}
-            busy={status === "uploading" || status === "separating"}
-            label={status === "separating" ? "Separating stems… (~50s)" : "Uploading…"}
+            onFile={setPendingFile}
+            busy={status === "uploading" || status === "separating" || status === "decoding"}
+            label={status === "separating" ? "Separating stems… (~50s)" : status === "decoding" ? "Loading track…" : "Uploading…"}
           />
         )}
         {status === "error" && (
-          <p className="mx-auto mt-2 max-w-6xl text-xs text-red-400/80">Something went wrong — check the console.</p>
+          <p className="mx-auto mt-2 w-full text-xs text-red-400/80">Something went wrong — check the console.</p>
         )}
 
         {/* STEM-MIX MODULE — content-sized, image as cropped backdrop */}
-        <div className="relative mx-auto mt-5 max-w-6xl overflow-hidden border border-white/15">
+        <div className="relative mx-auto mt-5 w-full overflow-hidden border border-white/15">
           {MODELS.map((m) => (
             <div key={m.id} className="absolute inset-0 bg-cover bg-center transition-opacity duration-700 ease-out"
-              style={{ backgroundImage: `url(${m.image})`, opacity: m.id === modelId ? 1 : 0 }} />
+              style={{ backgroundImage: `url(${m.image})`, opacity: m.id === themeId ? 1 : 0 }} />
           ))}
           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/45 to-black/72" />
           <div className="pointer-events-none absolute left-0 top-0 h-3 w-3 border-l border-t border-white/50" />
@@ -501,18 +648,18 @@ function Studio({ onBack }: { onBack: () => void }) {
           <div className="pointer-events-none absolute bottom-0 left-0 h-3 w-3 border-b border-l border-white/50" />
           <div className="pointer-events-none absolute bottom-0 right-0 h-3 w-3 border-b border-r border-white/50" />
 
-          {model.underDevelopment && (
+          {!directMode && model.underDevelopment && (
             <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-2 bg-zinc-900/70 backdrop-blur-[2px]">
               <span className="text-[10px] uppercase tracking-[0.3em] text-white/40">Coming Soon</span>
             </div>
           )}
 
-          {(status === "uploading" || status === "separating") && (
+          {(status === "uploading" || status === "separating" || status === "decoding") && (
             <div
               className="pointer-events-none absolute inset-0 z-40"
               style={{
                 padding: "1px",
-                background: `conic-gradient(from var(--rim-angle), transparent 0%, transparent 55%, ${model.accent}22 65%, ${model.accent}99 78%, ${model.accent} 86%, #fff 89%, transparent 92%)`,
+                background: `conic-gradient(from var(--rim-angle), transparent 0%, transparent 55%, ${accent}22 65%, ${accent}99 78%, ${accent} 86%, #fff 89%, transparent 92%)`,
                 WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
                 WebkitMaskComposite: "destination-out",
                 maskComposite: "exclude",
@@ -522,60 +669,72 @@ function Studio({ onBack }: { onBack: () => void }) {
           )}
 
           <div className="relative flex flex-col gap-7 p-8 md:p-10">
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-[0.3em] text-white/70">MODE</span>
-                <span className="text-[10px] uppercase tracking-[0.25em] transition-colors duration-700" style={{ color: model.accent }}>{model.kind} · {model.stems.length} stems</span>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <h2 className="text-2xl font-semibold tracking-tight">{model.label}</h2>
-                {model.subModels && (
-                  <div className="group relative">
-                    <div className="flex overflow-hidden border border-white/30">
-                      {model.subModels.map((sm, i) => {
-                        const on = sm.id === subModelId;
-                        return (
-                          <button key={sm.id} onClick={() => setSubModelId(sm.id)}
-                            style={on ? { backgroundColor: model.accent } : undefined}
-                            className={`px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 active:scale-95 ${on ? "text-black" : `text-white/50 hover:bg-white/10 hover:text-white ${i > 0 ? "border-l border-white/20" : ""}`}`}>
-                            {sm.label}
-                          </button>
-                        );
-                      })}
+            {!directMode ? (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-[0.3em] text-white/70">MODE</span>
+                  <span className="text-[10px] uppercase tracking-[0.25em] transition-colors duration-700" style={{ color: model.accent }}>{model.kind} · {model.stems.length} stems</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <h2 className="text-2xl font-semibold tracking-tight">{model.label}</h2>
+                  {model.subModels && (
+                    <div className="group relative">
+                      <div className="flex overflow-hidden border border-white/30">
+                        {model.subModels.map((sm, i) => {
+                          const on = sm.id === subModelId;
+                          return (
+                            <button key={sm.id} onClick={() => setSubModelId(sm.id)}
+                              style={on ? { backgroundColor: model.accent } : undefined}
+                              className={`px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 active:scale-95 ${on ? "text-black" : `text-white/50 hover:bg-white/10 hover:text-white ${i > 0 ? "border-l border-white/20" : ""}`}`}>
+                              {sm.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="pointer-events-none absolute left-full top-1/2 ml-2.5 -translate-y-1/2 whitespace-nowrap border border-white/15 bg-black/80 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/60 opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+                        If one model doesn't perform well, try the other
+                      </div>
                     </div>
-                    <div className="pointer-events-none absolute left-full top-1/2 ml-2.5 -translate-y-1/2 whitespace-nowrap border border-white/15 bg-black/80 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-white/60 opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
-                      If one model doesn't perform well, try the other
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {MODELS.map((m) => {
+                    const on = m.id === modelId;
+                    return (
+                      <div key={m.id} className="group relative">
+                        <button onClick={() => setModelId(m.id)}
+                          style={on ? { color: m.accent, borderColor: m.accent } : undefined}
+                          className={`rounded-full border px-3 py-1 text-xs backdrop-blur-sm transition active:scale-95 ${on ? "bg-white/10" : "border-white/20 text-white/60 hover:text-white"}`}>
+                          {m.label}
+                        </button>
+                        {m.underDevelopment && (
+                          <span className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] uppercase tracking-[0.2em] text-white/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                            Under Development
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-1">
-                {MODELS.map((m) => {
-                  const on = m.id === modelId;
-                  return (
-                    <div key={m.id} className="group relative">
-                      <button onClick={() => setModelId(m.id)}
-                        style={on ? { color: m.accent, borderColor: m.accent } : undefined}
-                        className={`rounded-full border px-3 py-1 text-xs backdrop-blur-sm transition active:scale-95 ${on ? "bg-white/10" : "border-white/20 text-white/60 hover:text-white"}`}>
-                        {m.label}
-                      </button>
-                      {m.underDevelopment && (
-                        <span className="pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] uppercase tracking-[0.2em] text-white/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                          Under Development
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+            ) : (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-[0.3em] text-white/70">MODE</span>
+                  <span className="text-[10px] uppercase tracking-[0.25em] transition-colors duration-700" style={{ color: accent }}>Direct Feed · No Separation</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <h2 className="truncate text-2xl font-semibold tracking-tight">{loaded?.filename ?? "Original Track"}</h2>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div key={modelId} className="animate-[fadeIn_0.35s_ease-out]">
-              {model.vocalSplit ? (
+            <div key={directMode ? "direct" : modelId} className="animate-[fadeIn_0.35s_ease-out]">
+              {!directMode && model.vocalSplit ? (
                 <div className="grid grid-cols-1 gap-3 border border-white/10 bg-black/25 p-3 backdrop-blur-[2px] md:grid-cols-2">
                   <div className="border border-white/10 p-4">
                     <h3 className="mb-3 text-[10px] uppercase tracking-[0.25em] text-white/60">Vocal Isolation / Denoising</h3>
-                    {model.stems.map((s) => mix[s.id] && (
+                    {activeStems.map((s) => mix[s.id] && (
                       <TrackHeader key={s.id} label={s.label} ch={mix[s.id]} onVol={(v) => setVol(s.id, v)} onMute={() => toggleMute(s.id)} onSolo={() => toggleSolo(s.id)} onDownload={() => downloadStem(s.id, s.label)} />
                     ))}
                   </div>
@@ -595,7 +754,7 @@ function Studio({ onBack }: { onBack: () => void }) {
                         <button onClick={() => zoom(1.25)} className="h-5 w-5 border border-white/15 text-xs text-white/60 transition active:scale-90 hover:text-white">+</button>
                       </div>
                     </div>
-                    {model.stems.map((s) => mix[s.id] && (
+                    {activeStems.map((s) => mix[s.id] && (
                       <TrackHeader key={s.id} label={s.label} ch={mix[s.id]} onVol={(v) => setVol(s.id, v)} onMute={() => toggleMute(s.id)} onSolo={() => toggleSolo(s.id)} onDownload={() => downloadStem(s.id, s.label)} />
                     ))}
                   </div>
@@ -603,9 +762,9 @@ function Studio({ onBack }: { onBack: () => void }) {
                     <div ref={laneRef} className="relative transition-[width] duration-200 ease-out" style={{ width: duration * pxPerSec }}>
                       <Ruler duration={duration} pxPerSec={pxPerSec} />
                       <div className="relative" onPointerDown={seek}>
-                        {model.stems.map((s) => mix[s.id] && (
+                        {activeStems.map((s) => mix[s.id] && (
                           <div key={s.id} className="border-b border-white/10" style={{ height: LANE_H }}>
-                            <Waveform peaks={peaks[s.id]} muted={mix[s.id].muted} accent={model.accent} empty={!loaded} />
+                            <Waveform peaks={peaks[s.id]} muted={mix[s.id].muted} accent={accent} empty={!loaded} />
                           </div>
                         ))}
                         <LoopRegion start={loopStart} end={loopEnd} duration={duration} enabled={loopEnabled} laneRef={laneRef} height={lanesH} onChange={(s, e) => { setLoopStart(s); setLoopEnd(e); }} />
@@ -621,7 +780,7 @@ function Studio({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* MASTER SECTION — its own thing */}
-        <div className="mx-auto mt-6 max-w-6xl border border-white/15 bg-black/30 p-4">
+        <div className="mx-auto mt-6 w-full border border-white/15 bg-black/30 p-4">
           <div className="mb-3 text-[10px] uppercase tracking-[0.3em] text-white/40">Master</div>
           <div className="flex flex-wrap items-center justify-between gap-6">
             <div className="flex items-center gap-3">
@@ -649,12 +808,12 @@ function Studio({ onBack }: { onBack: () => void }) {
             <div className="flex flex-wrap items-start gap-6">
               <Knob label="Speed" value={speed} min={0} max={2} step={0.1} format={(v) => `${v.toFixed(1)}x`} onChange={setSpeed} />
               <Knob label="Transpose" value={transpose} min={-24} max={24} step={1} format={(v) => `${v > 0 ? "+" : ""}${v} st`} onChange={setTranspose} />
-              <Knob label="Cents" value={cents} min={-100} max={100} step={1} format={(v) => `${v > 0 ? "+" : ""}${v}¢`} onChange={setCents} />
+              <Knob label="Cents" value={tuningCents} min={-100} max={100} step={1} format={(v) => `${v > 0 ? "+" : ""}${Math.round(v * 100) / 100}¢`} onChange={(v) => setCents(v - a432dir * A432_MAG)} />
               <div className="flex flex-col items-center gap-1">
                 <div className="flex overflow-hidden border border-white/20 text-[10px]">
-                  <button onClick={() => setA432dir((d) => (d === -1 ? 0 : -1))} style={a432dir === -1 ? { color: model.accent, borderColor: model.accent } : undefined}
+                  <button onClick={() => setA432dir((d) => (d === -1 ? 0 : -1))} style={a432dir === -1 ? { color: accent, borderColor: accent } : undefined}
                     className={`px-2 py-2 leading-none transition active:scale-95 ${a432dir === -1 ? "bg-white/10" : "text-white/55 hover:text-white"}`}>440→432</button>
-                  <button onClick={() => setA432dir((d) => (d === 1 ? 0 : 1))} style={a432dir === 1 ? { color: model.accent, borderColor: model.accent } : undefined}
+                  <button onClick={() => setA432dir((d) => (d === 1 ? 0 : 1))} style={a432dir === 1 ? { color: accent, borderColor: accent } : undefined}
                     className={`border-l border-white/20 px-2 py-2 leading-none transition active:scale-95 ${a432dir === 1 ? "bg-white/10" : "text-white/55 hover:text-white"}`}>432→440</button>
                 </div>
                 <span className="text-[10px] tabular-nums text-white/45">{a432dir ? `${a432dir > 0 ? "+" : "−"}${A432_MAG}¢ · ` : ""}Ref {refHz.toFixed(1)} Hz</span>
@@ -674,7 +833,7 @@ function About({ onBack, exiting }: { onBack: () => void; exiting: boolean }) {
 
   const sections = [
     { k: "01", t: "What it is", d: " Creative station for your audio separation needs" },
-    { k: "02", t: "How it works", d: "[ Replace this with the pipeline / models overview. ]" },
+    { k: "02", t: "Logs", d: "[ 7/23: Stem Separation Functioning, audio]" },
     { k: "03", t: "The models", d: "HTDemucs" },
     { k: "04", t: "Built by", d: "Tom Huihan Zhou" },
   ];
@@ -698,18 +857,15 @@ function About({ onBack, exiting }: { onBack: () => void; exiting: boolean }) {
             <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-5xl">About</h1>
             <p className="mt-6 text-base leading-8 text-white/70">
               Theseus is an audio source separation engine powered by Machine Learning <br />
-              Theseus is built to solve a few problems that I wished had a quick, and user friednly options during my
-              music journey. <br />
-              Theseus allows me to separate stem, drums, bass, and others for transcription and when I wanted to hear separate instruments clearer. <br />
-              For when I wanted to jam to a song that I couldn't find backkingtracks for. <br />
-              For when I wanted to learn a song by ear but that symbol is just ringing a little too loud. <br />
-              For when I wanted to jam to the oldies that were recorded in 432hz. <br />
-              For whern I wanted to brute force loop practice through an intense part of music <br />
-              For when I wanted to pretend to be Hanz Zimmer so I separate out the score from the film.
-              For when my voice is too reverby on a recording, and maybe i can salvage it.
-              For when I want to learn, make, and explore. <br />
+              
+              Logs: <br /> 
 
-              What is it for you?
+              7/23/26 - <br />
+              - Stem Separation Mode 1 Functioning <br />
+              - Audio Engine Functioning, Some functions are still in development <br />
+
+
+             
             </p>
           </div>
 

@@ -3,7 +3,7 @@ import * as Tone from "tone";
 import audioBufferToWav from "audiobuffer-to-wav"
 
 
-export type StemSource = {id: string; url: string}; 
+export type StemSource = {id: string; url: string};
 
 
 type Strip = {
@@ -20,23 +20,38 @@ type Strip = {
 export class AudioEngine {
 
     private strips = new Map<string, Strip>();
-    private master = new Tone.Gain(0.9).toDestination(); 
+    private master = new Tone.Gain(0.9).toDestination();
     private rate = 1;
-    private detune = 0; 
+    private detune = 0;
 
     // Tone.start(), call on first user gesture
-    async unlock() { 
+    async unlock() {
         await Tone.start();
     }
-    
-    async loadStem(sources: StemSource[]) {
-        //  Existing strip clean up
+
+    // dispose every strip and reset the transport — wipes the engine back to a blank session
+    clear(): void {
+        Tone.Transport.stop();
+        Tone.Transport.seconds = 0;
         for (const strip of this.strips.values()) {
             strip.player.dispose();
             strip.gain.dispose();
             strip.solo.dispose();
         }
         this.strips.clear();
+    }
+
+    // full teardown — call when the owning component unmounts. Tone.Transport and
+    // Tone.Destination are page-wide singletons, not scoped to this instance, so any
+    // strip left playing (and the master bus itself) would keep running forever,
+    // unreachable, if this isn't called.
+    dispose(): void {
+        this.clear();
+        this.master.dispose();
+    }
+
+    async loadStem(sources: StemSource[]) {
+        this.clear();
 
         for (const source of sources) {
             const player = new Tone.GrainPlayer(source.url);
@@ -92,6 +107,14 @@ export class AudioEngine {
         Tone.Transport.loop = enabled;
         Tone.Transport.loopStart = start;
         Tone.Transport.loopEnd = end;
+        // GrainPlayer schedules its own grains off an internal clock, so it
+        // needs its own loop points too — Transport's loop alone only wraps
+        // the Transport clock, not each player's granular scheduling.
+        for (const strip of this.strips.values()) {
+            strip.player.loop = enabled;
+            strip.player.loopStart = start;
+            strip.player.loopEnd = end;
+        }
     }
 
     setRate(rate: number): void     
@@ -119,22 +142,23 @@ export class AudioEngine {
 
     setStemVolume(id: string, v: number): void {
         const strip = this.strips.get(id);
-        if (! strip) return; 
-        strip.gain.gain.value = v; 
+        if (! strip) return;
+        // last_gain is the "logical" fader position; only touch the live
+        // gain node if audible, so adjusting the slider while muted doesn't
+        // get discarded on unmute.
+        strip.last_gain = v;
+        if (! strip.muted) {
+            strip.gain.gain.value = v;
+        }
     }
 
 
     setMute(id: string, muted: boolean): void {
         const strip = this.strips.get(id);
         if (! strip) return;
-        if (! muted) {
-            strip.gain.gain.value = strip.last_gain
-        }
-        else {
-            strip.last_gain = strip.gain.gain.value;
-            strip.gain.gain.value = 0;
-        }
-    }      
+        strip.muted = muted;
+        strip.gain.gain.value = muted ? 0 : strip.last_gain;
+    }
 
     setSolo(id: string, soloed: boolean): void {
         const strip = this.strips.get(id);
@@ -142,17 +166,15 @@ export class AudioEngine {
         strip.solo.solo = soloed;
     }        
 
-    // playhead tracker 
+    // playhead tracker
     onTimeUpdate(cb: (t: number) => void): () => void  {
-        let frameId: number 
+        let frameId: number
         const tick = () => {
-
             cb(Tone.Transport.seconds);
             frameId = requestAnimationFrame(tick);
-        }; 
+        };
         frameId = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(frameId);
-
     }
     
    
